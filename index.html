@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CRAFTY: MULTIPLAYER</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;900&display=swap');
+        body { background: #050505; color: #e4e4e7; font-family: 'Inter', sans-serif; overflow: hidden; }
+        .canvas-area { background-image: radial-gradient(#1a1a1a 1px, transparent 1px); background-size: 30px 30px; position: relative; height: 100%; width: 100%; flex: 1; }
+        .element-node { cursor: grab; touch-action: none; position: absolute; white-space: nowrap; border-radius: 12px; z-index: 10; }
+        .home-gradient { background: radial-gradient(circle at top right, #1e1b4b, #000000); }
+    </style>
+</head>
+<body class="h-screen flex flex-col">
+
+    <div id="home-page" class="fixed inset-0 z-[1000] home-gradient flex flex-col items-center justify-center p-6">
+        <h1 class="text-7xl font-black italic tracking-tighter mb-2">CRAFTY</h1>
+        <p class="text-yellow-500 font-bold tracking-[0.4em] text-[10px] mb-12 uppercase">Ultimate Edition</p>
+        
+        <div class="grid gap-4 w-full max-w-xs">
+            <button onclick="showScreen('auth-screen')" class="bg-white text-black font-black py-4 rounded-2xl flex items-center justify-center gap-3">
+                <i data-lucide="play"></i> PLAY SOLO
+            </button>
+            <button onclick="startMultiplayer()" class="bg-zinc-900 border border-white/10 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-3">
+                <i data-lucide="users"></i> MULTIPLAYER
+            </button>
+            <button onclick="showScreen('settings-screen')" class="text-zinc-500 text-xs font-bold uppercase tracking-widest mt-4">Settings & Save</button>
+        </div>
+    </div>
+
+    <div id="auth-screen" class="fixed inset-0 z-[1100] hidden bg-black flex items-center justify-center p-6">
+        <div class="w-full max-w-xs text-center">
+            <h2 class="text-2xl font-black mb-8 uppercase italic">Login to Account</h2>
+            <input type="text" id="username" placeholder="NAME" class="w-full bg-zinc-900 border border-white/10 rounded-2xl py-4 mb-3 text-center font-bold text-white uppercase">
+            <input type="password" id="password" placeholder="PASSWORD" class="w-full bg-zinc-900 border border-white/10 rounded-2xl py-4 mb-6 text-center font-bold text-white">
+            <button onclick="handleAuth()" class="w-full bg-yellow-500 text-black font-black py-4 rounded-2xl">START CRAFTING</button>
+            <button onclick="showScreen('home-page')" class="mt-4 text-zinc-500 text-xs">BACK</button>
+        </div>
+    </div>
+
+    <div id="multi-screen" class="fixed inset-0 z-[1100] hidden bg-black flex items-center justify-center p-6 text-center">
+        <div class="w-full max-w-xs">
+            <i data-lucide="globe" class="mx-auto mb-4 text-yellow-500"></i>
+            <h2 class="text-2xl font-black mb-2 uppercase">Online Room</h2>
+            <p class="text-xs text-zinc-500 mb-8">Share your code to trade elements.</p>
+            <div id="room-display" class="bg-zinc-900 p-4 rounded-2xl font-mono text-2xl mb-4 border border-yellow-500/50">---</div>
+            <button onclick="showScreen('home-page')" class="w-full bg-white text-black font-black py-4 rounded-2xl">EXIT TO HOME</button>
+        </div>
+    </div>
+
+    <nav class="h-16 border-b border-white/5 flex items-center justify-between px-6 bg-black z-50">
+        <div class="flex items-center gap-3">
+            <div id="u-avatar" class="w-9 h-9 bg-yellow-500 rounded-xl flex items-center justify-center text-black font-black">?</div>
+            <div class="flex flex-col">
+                <span id="u-display" class="font-black uppercase text-[10px]">Guest</span>
+                <span id="u-count" class="text-[8px] text-zinc-500 font-bold uppercase">0 Items</span>
+            </div>
+        </div>
+        <div class="flex gap-2">
+            <button onclick="showScreen('home-page')" class="p-2 text-zinc-400"><i data-lucide="home"></i></button>
+            <button onclick="resetCanvas()" class="p-2 text-zinc-400"><i data-lucide="refresh-cw"></i></button>
+        </div>
+    </nav>
+
+    <main id="canvas" class="canvas-area"></main>
+
+    <aside class="h-1/3 border-t border-white/10 bg-zinc-950 p-4">
+        <div id="inventory" class="flex flex-wrap gap-2 overflow-y-auto h-full content-start justify-center pb-8"></div>
+    </aside>
+
+    <script>
+        let currentID = localStorage.getItem('cp_active_player') || null;
+        let myCollection = [];
+
+        function showScreen(id) {
+            document.querySelectorAll('#home-page, #auth-screen, #multi-screen').forEach(s => s.classList.add('hidden'));
+            document.getElementById(id).classList.remove('hidden');
+        }
+
+        function handleAuth() {
+            const name = document.getElementById('username').value.trim().toUpperCase();
+            const pass = document.getElementById('password').value.trim();
+            if (!name || !pass) return;
+            const storedPass = localStorage.getItem('cp_pass_' + name);
+            if (!storedPass || storedPass === pass) {
+                if (!storedPass) localStorage.setItem('cp_pass_' + name, pass);
+                localStorage.setItem('cp_active_player', name);
+                location.reload();
+            } else {
+                alert("Wrong password!");
+            }
+        }
+
+        function startMultiplayer() {
+            showScreen('multi-screen');
+            const roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+            document.getElementById('room-display').innerText = roomCode;
+        }
+
+        function init() {
+            if (currentID) {
+                document.getElementById('home-page').classList.add('hidden');
+                document.getElementById('u-display').innerText = currentID;
+                document.getElementById('u-avatar').innerText = currentID[0];
+                const saved = localStorage.getItem('cp_data_' + currentID);
+                myCollection = saved ? JSON.parse(saved) : [
+                    { name: 'Water', emoji: '💧' }, { name: 'Fire', emoji: '🔥' }, 
+                    { name: 'Earth', emoji: '🏔️' }, { name: 'Wind', emoji: '🌬️' }
+                ];
+                render();
+            }
+        }
+
+        function render() {
+            const inv = document.getElementById('inventory');
+            inv.innerHTML = '';
+            myCollection.forEach(item => {
+                const btn = document.createElement('button');
+                btn.className = "bg-zinc-900 border border-white/5 text-white px-4 py-2 rounded-xl flex items-center gap-2 text-[10px] font-black uppercase";
+                btn.innerHTML = `<span>${item.emoji}</span> ${item.name}`;
+                btn.onclick = () => spawn(item.name, item.emoji, window.innerWidth/2, window.innerHeight/4);
+                inv.appendChild(btn);
+            });
+            document.getElementById('u-count').innerText = `${myCollection.length} Items`;
+            localStorage.setItem('cp_data_' + currentID, JSON.stringify(myCollection));
+        }
+
+        function spawn(name, emoji, x, y, isNew = false) {
+            const el = document.createElement('div');
+            el.className = `element-node bg-white text-black px-5 py-2.5 rounded-xl font-black flex items-center gap-2 shadow-2xl ${isNew ? 'animate-bounce' : ''}`;
+            el.style.left = x + 'px'; el.style.top = y + 'px';
+            el.dataset.name = name;
+            el.innerHTML = `<span>${emoji}</span> ${name}`;
+            
+            const move = (e) => {
+                const cx = e.touches ? e.touches[0].clientX : e.clientX;
+                const cy = e.touches ? e.touches[0].clientY : e.clientY;
+                el.style.left = (cx - 40) + 'px'; el.style.top = (cy - 20) + 'px';
+            };
+            el.addEventListener('touchmove', move);
+            el.addEventListener('touchend', () => checkMerge(el));
+            document.getElementById('canvas').appendChild(el);
+        }
+
+        function checkMerge(active) {
+            const r1 = active.getBoundingClientRect();
+            document.querySelectorAll('.element-node').forEach(other => {
+                if (other === active) return;
+                const r2 = other.getBoundingClientRect();
+                if (!(r1.right < r2.left || r1.left > r2.right || r1.bottom < r2.top || r1.top > r2.bottom)) {
+                    const n1 = active.dataset.name, n2 = other.dataset.name;
+                    const newName = n1.substring(0,3) + n2.substring(n2.length - 3);
+                    const res = { name: newName.charAt(0).toUpperCase() + newName.slice(1).toLowerCase(), emoji: '✨' };
+                    if (!myCollection.find(i => i.name === res.name)) { myCollection.push(res); render(); }
+                    active.remove(); other.remove();
+                    spawn(res.name, res.emoji, r2.left, r2.top, true);
+                    confetti({ particleCount: 30 });
+                }
+            });
+        }
+
+        function resetCanvas() { document.getElementById('canvas').innerHTML = ''; }
+        
+        init();
+        lucide.createIcons();
+    </script>
+</body>
+</html>

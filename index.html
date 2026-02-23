@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CRAFTY CRAFT CRAFT</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        body { background: #09090b; color: #e4e4e7; font-family: 'Inter', sans-serif; overflow: hidden; touch-action: none; -webkit-user-select: none; }
+        .canvas-area { background-image: radial-gradient(#1f1f23 2px, transparent 2px); background-size: 30px 30px; position: relative; }
+        .element-node { cursor: grab; touch-action: none; transition: transform 0.1s; z-index: 10; user-select: none; position: absolute; }
+        .new-shine { box-shadow: 0 0 25px 5px rgba(250, 204, 21, 0.7); border: 3px solid #facc15 !important; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+        .slot-btn-active { background: #facc15 !important; color: #000 !important; }
+        .modal-bg { background: rgba(0,0,0,0.95); backdrop-filter: blur(10px); }
+        #inventory::-webkit-scrollbar { display: none; }
+        #inventory { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="h-screen flex flex-col">
+
+    <nav class="h-16 border-b border-white/10 flex items-center justify-between px-4 bg-zinc-950 z-50">
+        <button onclick="toggleDiscoveryModal()" class="p-2.5 bg-yellow-500/10 text-yellow-500 rounded-xl border border-yellow-500/30 active:scale-90 transition-transform">
+            <i data-lucide="trophy" class="w-6 h-6"></i>
+        </button>
+        
+        <div class="flex bg-zinc-900 p-1 rounded-xl border border-white/5 scale-90">
+            <button onclick="switchSlot(1)" id="slot-1" class="px-4 py-1.5 rounded-lg text-[10px] font-black transition-all">S1</button>
+            <button onclick="switchSlot(2)" id="slot-2" class="px-4 py-1.5 rounded-lg text-[10px] font-black transition-all">S2</button>
+            <button onclick="switchSlot(3)" id="slot-3" class="px-4 py-1.5 rounded-lg text-[10px] font-black transition-all">S3</button>
+        </div>
+
+        <div class="flex gap-2">
+            <button onclick="manualSave()" class="p-2.5 bg-zinc-800 text-green-400 rounded-xl border border-white/5 active:scale-90 transition-transform">
+                <i data-lucide="save" class="w-6 h-6"></i>
+            </button>
+            <button onclick="window.location.reload()" class="p-2.5 bg-zinc-800 text-white rounded-xl border border-white/5 active:scale-90 transition-transform">
+                <i data-lucide="home" class="w-6 h-6"></i>
+            </button>
+        </div>
+    </nav>
+
+    <main id="canvas" class="flex-1 canvas-area overflow-hidden">
+        <div id="save-indicator" class="absolute bottom-4 left-4 opacity-0 transition-opacity bg-green-500/20 text-green-400 border border-green-500/50 px-4 py-2 rounded-full text-[10px] font-black">
+            SAVED TO STORAGE
+        </div>
+    </main>
+
+    <aside class="h-48 border-t border-white/10 bg-zinc-950 flex flex-col p-4 shadow-2xl">
+        <div class="flex justify-between items-center mb-4">
+            <div class="flex items-center gap-2">
+                <input type="text" id="slot-name-input" onchange="renameSlot()" class="bg-transparent text-yellow-500 font-black uppercase text-xs w-28 outline-none" value="SLOT 1">
+            </div>
+            <div class="flex gap-4 items-center">
+                <button onclick="refreshSave()" class="text-red-500/40 active:text-red-500"><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>
+                <button onclick="toggleKey()" id="key-label" class="text-[10px] font-black px-4 py-1.5 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-full uppercase">Nature</button>
+            </div>
+        </div>
+
+        <div id="inventory" class="flex flex-nowrap overflow-x-auto gap-4 pb-4">
+            </div>
+
+        <div class="mt-auto pt-2 border-t border-white/5 flex justify-center">
+            <p class="text-[8px] font-bold text-zinc-600 uppercase tracking-widest">© 2024 ALL RIGHTS RESERVED • PROPRIETARY CODE</p>
+        </div>
+    </aside>
+
+    <div id="discovery-modal" class="fixed inset-0 z-[100] modal-bg hidden flex flex-col">
+        <div class="p-6 flex justify-between items-center border-b border-white/10">
+            <div>
+                <h2 class="text-2xl font-black italic text-white uppercase tracking-tighter">Hall of Fame</h2>
+                <p class="text-[9px] font-black text-yellow-500 uppercase tracking-widest">Your First Discoveries</p>
+            </div>
+            <button onclick="toggleDiscoveryModal()" class="p-3 bg-zinc-800 rounded-full text-white"><i data-lucide="x" class="w-6 h-6"></i></button>
+        </div>
+        <div id="discovery-list" class="p-6 grid grid-cols-3 gap-4 overflow-y-auto"></div>
+    </div>
+
+    <script>
+        let currentSlot = 1;
+        let activeKey = 'Nature';
+        let inventory = [];
+        let firstDiscoveries = JSON.parse(localStorage.getItem('crafty_first_list')) || [];
+        let slotNames = JSON.parse(localStorage.getItem('crafty_slot_names')) || { 1: "SLOT 1", 2: "SLOT 2", 3: "SLOT 3" };
+
+        const BASE = [{ name: 'Water', emoji: '💧' }, { name: 'Fire', emoji: '🔥' }, { name: 'Earth', emoji: '🏔️' }, { name: 'Wind', emoji: '🌬️' }];
+        const LOGIC = { 'Nature': { 'fire+water': 'Steam', 'fire+earth': 'Lava', 'earth+water': 'Mud', 'wind+earth': 'Dust' }, 'Music': { 'wind+fire': 'Jazz', 'water+fire': 'Blues', 'steam+wind': 'Whistle' } };
+        const EMOJIS = { 'Steam': '☁️', 'Lava': '🌋', 'Mud': '💩', 'Jazz': '🎷', 'Blues': '🎸', 'Dust': '🧹', 'Whistle': '🌬️' };
+
+        function switchSlot(slotNum) {
+            currentSlot = slotNum;
+            for(let i=1; i<=3; i++) document.getElementById(`slot-${i}`).className = (i === slotNum) ? 'slot-btn-active px-4 py-1.5 rounded-lg text-[10px] font-black' : 'px-4 py-1.5 rounded-lg text-[10px] font-black text-zinc-500';
+            document.getElementById('slot-name-input').value = slotNames[slotNum];
+            inventory = JSON.parse(localStorage.getItem(`crafty_data_slot_${slotNum}`)) || [...BASE];
+            resetCanvas(); render();
+        }
+
+        function render() {
+            const list = document.getElementById('inventory');
+            list.innerHTML = '';
+            inventory.forEach(item => {
+                const card = document.createElement('div');
+                card.className = "flex-shrink-0 bg-zinc-900 border border-white/10 p-5 rounded-2xl flex flex-col items-center justify-center min-w-[100px]";
+                card.onclick = () => spawn(item.name, item.emoji, window.innerWidth/2, window.innerHeight/3);
+                card.innerHTML = `<span class="text-4xl mb-1">${item.emoji}</span><span class="text-[10px] font-black uppercase text-zinc-400">${item.name}</span>`;
+                list.appendChild(card);
+            });
+        }
+
+        function spawn(name, emoji, x, y, isNew = false) {
+            const el = document.createElement('div');
+            el.className = `element-node bg-white text-black px-6 py-3 rounded-full font-black shadow-2xl flex items-center gap-2 ${isNew ? 'new-shine' : ''}`;
+            el.style.left = (x - 60) + 'px'; el.style.top = (y - 25) + 'px';
+            el.dataset.name = name; el.innerHTML = `<span>${emoji}</span> ${name}`;
+            el.ontouchmove = (e) => { el.style.left = (e.touches[0].clientX - 60) + 'px'; el.style.top = (e.touches[0].clientY - 25) + 'px'; };
+            el.ontouchend = () => check(el);
+            document.getElementById('canvas').appendChild(el);
+        }
+
+        function check(active) {
+            document.querySelectorAll('.element-node').forEach(other => {
+                if (other === active) return;
+                const r1 = active.getBoundingClientRect(), r2 = other.getBoundingClientRect();
+                if (!(r1.right < r2.left || r1.left > r2.right || r1.bottom < r2.top || r1.top > r2.bottom)) {
+                    const pair = [active.dataset.name.toLowerCase(), other.dataset.name.toLowerCase()].sort().join('+');
+                    const match = LOGIC[activeKey][pair];
+                    if (match) {
+                        if (!inventory.find(i => i.name === match)) {
+                            inventory.push({ name: match, emoji: EMOJIS[match] });
+                            if (!firstDiscoveries.find(d => d.name === match)) firstDiscoveries.push({ name: match, emoji: EMOJIS[match] });
+                            render(); manualSave();
+                            confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+                        }
+                        active.remove(); other.remove();
+                        spawn(match, EMOJIS[match], r1.left + 50, r1.top, true);
+                    }
+                }
+            });
+        }
+
+        function manualSave() {
+            localStorage.setItem(`crafty_data_slot_${currentSlot}`, JSON.stringify(inventory));
+            localStorage.setItem('crafty_slot_names', JSON.stringify(slotNames));
+            localStorage.setItem('crafty_first_list', JSON.stringify(firstDiscoveries));
+            const ind = document.getElementById('save-indicator');
+            ind.style.opacity = '1'; setTimeout(() => ind.style.opacity = '0', 1000);
+        }
+
+        function renameSlot() { slotNames[currentSlot] = document.getElementById('slot-name-input').value.toUpperCase(); manualSave(); }
+        function toggleDiscoveryModal() {
+            const m = document.getElementById('discovery-modal'); m.classList.toggle('hidden');
+            const l = document.getElementById('discovery-list'); l.innerHTML = '';
+            firstDiscoveries.forEach(i => { l.innerHTML += `<div class="bg-zinc-900 border border-yellow-500/30 p-5 rounded-3xl flex flex-col items-center justify-center min-h-[110px]"><span class="text-4xl">${i.emoji}</span><span class="text-[10px] font-black uppercase text-white mt-2">${i.name}</span></div>`; });
+        }
+        function toggleKey() { activeKey = activeKey === 'Nature' ? 'Music' : 'Nature'; document.getElementById('key-label').innerText = activeKey; }
+        function resetCanvas() { document.getElementById('canvas').innerHTML = ''; }
+        function refreshSave() { if(confirm("Wipe slot?")) { inventory = [...BASE]; manualSave(); render(); } }
+
+        switchSlot(1);
+        lucide.createIcons();
+    </script>
+</body>
+</html>

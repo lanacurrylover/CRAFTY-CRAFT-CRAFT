@@ -1,9 +1,0 @@
-{
-  "name": "crafty-ai",
-  "version": "1.0.0",
-  "description": "Infinite Craft AI Game",
-  "main": "index.html",
-  "dependencies": {
-    "node-fetch": "^2.7.0"
-  }
-}

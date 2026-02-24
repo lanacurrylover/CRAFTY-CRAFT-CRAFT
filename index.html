@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>CRAFTY: MOBILE FIXED</title>
+    <script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
+    <style>
+        :root { 
+            --bg: #f0f2f5; --primary: #4a90e2; --accent: #ff4757; 
+            --safe-top: env(safe-area-inset-top, 0px);
+            --safe-bottom: env(safe-area-inset-bottom, 0px); 
+        }
+
+        /* Essential for Mobile Portrait */
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
+        html, body { 
+            width: 100%; height: 100%; 
+            overflow: hidden; position: fixed; 
+            background: var(--bg); 
+            font-family: -apple-system, sans-serif;
+        }
+
+        .screen { display: none; width: 100%; height: 100%; position: absolute; top:0; left:0; flex-direction: column; align-items: center; justify-content: center; }
+        .active { display: flex; }
+
+        /* THE PORTRAIT FIX: Flexbox Layout */
+        #game-container {
+            display: flex;
+            flex-direction: column;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #board { 
+            flex: 1; /* Takes up all remaining space */
+            background: #fff; 
+            position: relative; 
+            z-index: 1;
+            touch-action: none;
+        }
+
+        #inventory { 
+            height: 160px; /* Fixed height for thumb-reach */
+            background: rgba(248, 249, 250, 0.95); 
+            backdrop-filter: blur(10px);
+            border-top: 2px solid #ddd; 
+            display: flex; 
+            overflow-x: auto; 
+            padding: 15px 15px calc(15px + var(--safe-bottom)) 15px; 
+            gap: 12px; 
+            align-items: center; 
+            z-index: 100;
+        }
+
+        /* Items */
+        .item { position: absolute; padding: 10px 18px; background: white; border: 1px solid #ddd; border-radius: 25px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); font-size: 1.1rem; display: flex; align-items: center; gap: 8px; z-index: 10; cursor: grab; white-space: nowrap; touch-action: none; }
+        .inv-item { padding: 10px 18px; background: white; border: 1px solid #ccc; border-radius: 20px; cursor: pointer; white-space: nowrap; flex-shrink: 0; font-weight: 500; }
+
+        /* Buttons */
+        .menu-btn { width: 80%; max-width: 300px; padding: 18px; margin: 10px; font-size: 1.2rem; border: none; border-radius: 15px; background: white; box-shadow: 0 4px 10px rgba(0,0,0,0.1); font-weight: bold; }
+        .special { background: var(--primary); color: white; }
+        .corner-btn { position: absolute; z-index: 1001; width: 45px; height: 45px; background: white; border-radius: 50%; border: 1px solid #ddd; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; top: calc(10px + var(--safe-top)); }
+    </style>
+</head>
+<body>
+
+    <div id="screen-home" class="screen active">
+        <h1>CRAFTY 🧪</h1>
+        <button class="menu-btn special" onclick="startGame()">Start Game</button>
+    </div>
+
+    <div id="screen-game" class="screen">
+        <div id="game-container">
+            <div class="corner-btn" style="left:10px;" onclick="location.reload()">🏠</div>
+            <div class="corner-btn" style="right:10px;" onclick="document.getElementById('board').innerHTML=''">🧹</div>
+            <div id="board"></div>
+            <div id="inventory"></div>
+        </div>
+    </div>
+
+    <script>
+        const GROQ_KEY = "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";
+        let discoveries = JSON.parse(localStorage.getItem('myCrafts')) || [{n:"Water",e:"💧"}, {n:"Fire",e:"🔥"}, {n:"Earth",e:"🌍"}, {n:"Wind",e:"💨"}];
+
+        function startGame() {
+            document.getElementById('screen-home').classList.remove('active');
+            document.getElementById('screen-game').classList.add('active');
+            updateUI();
+        }
+
+        function updateUI() {
+            const inv = document.getElementById('inventory');
+            inv.innerHTML = '';
+            discoveries.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'inv-item';
+                div.innerHTML = `${item.e} ${item.n}`;
+                div.onpointerdown = (e) => {
+                    const newItem = createItem(item.n, item.e, e.clientX - 40, e.clientY - 40);
+                    newItem.onpointerdown(e);
+                };
+                inv.appendChild(div);
+            });
+        }
+
+        function createItem(name, emoji, x, y) {
+            const div = document.createElement('div');
+            div.className = 'item';
+            div.innerHTML = `<span>${emoji}</span> <span>${name}</span>`;
+            div.style.left = x + 'px';
+            div.style.top = y + 'px';
+            document.getElementById('board').appendChild(div);
+
+            div.onpointerdown = (e) => {
+                div.setPointerCapture(e.pointerId);
+                let shiftX = e.clientX - div.getBoundingClientRect().left;
+                let shiftY = e.clientY - div.getBoundingClientRect().top;
+                
+                div.onpointermove = (ev) => {
+                    div.style.left = (ev.clientX - shiftX) + 'px';
+                    div.style.top = (ev.clientY - shiftY) + 'px';
+                    checkOverlap(div);
+                };
+                div.onpointerup = () => { div.onpointermove = null; };
+            };
+            return div;
+        }
+
+        async function checkOverlap(active) {
+            const items = document.querySelectorAll('.item');
+            const r1 = active.getBoundingClientRect();
+            for (let other of items) {
+                if (other === active) continue;
+                const r2 = other.getBoundingClientRect();
+                if (!(r1.right < r2.left || r1.left > r2.right || r1.bottom < r2.top || r1.top > r2.bottom)) {
+                    const n1 = active.innerText.split('\n')[1] || active.innerText.split(' ')[1];
+                    const n2 = other.innerText.split('\n')[1] || other.innerText.split(' ')[1];
+                    const sX = r2.left, sY = r2.top;
+                    active.remove(); other.remove();
+                    
+                    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                        method: "POST",
+                        headers: { "Authorization": `Bearer ${GROQ_KEY}`, "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            model: "llama3-8b-8192",
+                            messages: [{ role: "system", content: "Combine 2 items into JSON: {\"n\":\"Name\",\"e\":\"Emoji\"}" },
+                                       { role: "user", content: `${n1} + ${n2}` }],
+                            response_format: { type: "json_object" }
+                        })
+                    });
+                    const data = await res.json();
+                    const result = JSON.parse(data.choices[0].message.content);
+                    if (!discoveries.some(d => d.n === result.n)) {
+                        discoveries.push(result);
+                        localStorage.setItem('myCrafts', JSON.stringify(discoveries));
+                        updateUI();
+                    }
+                    createItem(result.n, result.e, sX, sY);
+                    break;
+                }
+            }
+        }
+    </script>
+</body>
+</html>

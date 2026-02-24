@@ -1,0 +1,8 @@
+{
+  "name": "crafty-game",
+  "version": "1.0.0",
+  "dependencies": {
+    "groq-sdk": "^0.12.0",
+    "ably": "^1.2.49"
+  }
+}

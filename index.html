@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CRAFTY: RACE EDITION</title>
+    <script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
+    <style>
+        :root { --bg: #f0f2f5; --primary: #4a90e2; --accent: #ff4757; --glass: rgba(255, 255, 255, 0.9); }
+        body { margin: 0; font-family: -apple-system, sans-serif; background: var(--bg); overflow: hidden; touch-action: none; }
+        
+        /* Navigation & Screens */
+        .screen { display: none; width: 100vw; height: 100vh; flex-direction: column; align-items: center; justify-content: center; position: absolute; top:0; left:0; }
+        .active { display: flex; }
+
+        /* Home UI */
+        #screen-home h1 { font-size: 3.5rem; margin-bottom: 2rem; color: #333; letter-spacing: -2px; }
+        .menu-btn { width: 280px; padding: 18px; margin: 10px; font-size: 1.2rem; border: none; border-radius: 15px; cursor: pointer; background: white; box-shadow: 0 4px 10px rgba(0,0,0,0.1); font-weight: bold; transition: 0.2s; }
+        .special { background: var(--primary); color: white; }
+        .menu-btn:active { transform: scale(0.95); }
+
+        /* Game Layout */
+        #board { position: absolute; top: 0; left: 0; right: 0; bottom: 140px; background: white; overflow: hidden; }
+        #inventory { position: absolute; bottom: 0; left: 0; right: 0; height: 140px; background: #f8f9fa; border-top: 2px solid #ddd; display: flex; overflow-x: auto; padding: 15px; gap: 12px; align-items: center; z-index: 1000; }
+
+        /* Elements */
+        .item { position: absolute; padding: 12px 18px; background: white; border: 1px solid #ddd; border-radius: 25px; box-shadow: 0 3px 6px rgba(0,0,0,0.1); font-size: 1.2rem; display: flex; align-items: center; gap: 8px; z-index: 10; white-space: nowrap; }
+        .inv-item { padding: 10px 20px; background: white; border: 1px solid #ccc; border-radius: 20px; cursor: pointer; white-space: nowrap; font-size: 1.1rem; flex-shrink: 0; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        
+        /* Recipe Info Button on Item */
+        .recipe-btn { font-size: 0.7rem; background: #eee; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; margin-left: 5px; color: #888; border: 1px solid #ddd; }
+
+        /* Modals */
+        .modal { display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+        .modal-content { background: white; padding: 30px; border-radius: 25px; width: 85%; max-width: 400px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+
+        /* HUD */
+        #goal-bar { position: fixed; top: 20px; background: var(--glass); padding: 10px 25px; border-radius: 30px; border: 2px solid var(--accent); font-weight: bold; z-index: 100; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        .corner-btn { position: fixed; z-index: 101; width: 50px; height: 50px; background: white; border-radius: 50%; border: 1px solid #ddd; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+
+    <div id="infoModal" class="modal">
+        <div class="modal-content">
+            <h2 id="modal-title">How to Play 🧪</h2>
+            <p id="modal-text">Drag items from the bottom bar and overlap them to craft new ones!</p>
+            <button class="menu-btn special" onclick="closeModal()">Got it!</button>
+        </div>
+    </div>
+
+    <div id="screen-home" class="screen active">
+        <h1>CRAFTY 🧪</h1>
+        <button class="menu-btn special" onclick="startSinglePlayer()">🕹️ Single Player</button>
+        <button class="menu-btn" onclick="showScreen('screen-multi')">👥 Multiplayer Race</button>
+        <button class="menu-btn" onclick="showDiscoveries()">✨ My Discoveries</button>
+        <div class="corner-btn" style="bottom:20px; right:20px;" onclick="openInfo()">?</div>
+    </div>
+
+    <div id="screen-multi" class="screen">
+        <h2 id="lobby-status">Lobby</h2>
+        <input type="text" id="room-input" placeholder="Room Code" style="padding:15px; width:220px; border-radius:12px; border:1px solid #ccc; margin-bottom:15px; font-size:1.1rem;">
+        <div id="lobby-actions">
+            <button class="menu-btn special" onclick="setupLobby('host')">🏠 Host Race</button>
+            <button class="menu-btn" onclick="setupLobby('join')">🔑 Join Room</button>
+        </div>
+        <div id="host-controls" style="display:none;">
+            <p>Ready to go?</p>
+            <button class="menu-btn special" onclick="triggerRaceStart()">🚀 START RACE</button>
+        </div>
+        <button class="menu-btn" onclick="location.reload()">⬅️ Back</button>
+    </div>
+
+    <div id="screen-game" class="screen">
+        <div id="goal-bar" style="display:none;">TARGET: <span id="target-word">Wait for Host...</span></div>
+        <div class="corner-btn" style="top:15px; left:15px;" onclick="location.reload()">🏠</div>
+        <div class="corner-btn" style="top:15px; right:15px;" onclick="clearBoard()">🧹</div>
+        <div id="board"></div>
+        <div id="inventory"></div>
+    </div>
+
+    <script>
+        // --- CONFIG & STATE ---
+        const ABLY_KEY = 'IX1oeA.YHFVAg:SzKEUf1q-Lvi5CQzI3BlCyhh2tX1fZBfxXtFyYu_-NY';
+        let myDiscoveries = JSON.parse(localStorage.getItem('myCrafts')) || [
+            {n:"Water",e:"💧"}, {n:"Fire",e:"🔥"}, {n:"Earth",e:"🌍"}, {n:"Wind",e:"💨"}
+        ];
+        let recipeBook = JSON.parse(localStorage.getItem('recipeBook')) || {};
+        let isMultiplayer = false, targetGoal = "", ably, channel, isHost = false;
+
+        // --- NAVIGATION ---
+        function showScreen(id) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+        }
+
+        function openInfo() {
+            document.getElementById('modal-title').innerText = "How to Play 🧪";
+            document.getElementById('modal-text').innerText = "1. Tap items in the bottom bar to spawn them.\n2. Drag them on top of each other to craft.\n3. Tap 'i' on an item to see its recipe!";
+            document.getElementById('infoModal').style.display = 'flex';
+        }
+
+        function showRecipe(name) {
+            const recipe = recipeBook[name];
+            document.getElementById('modal-title').innerText = name;
+            document.getElementById('modal-text').innerText = recipe ? `Recipe: ${recipe.i1} + ${recipe.i2}` : "This is a Basic Element.";
+            document.getElementById('infoModal').style.display = 'flex';
+        }
+
+        function closeModal() { document.getElementById('infoModal').style.display = 'none'; }
+
+        // --- GAME MODES ---
+        function startSinglePlayer() {
+            isMultiplayer = false;
+            document.getElementById('goal-bar').style.display = 'none';
+            showScreen('screen-game');
+            updateInventoryUI();
+        }
+
+        async function setupLobby(role) {
+            const code = document.getElementById('room-input').value;
+            if (!code) return alert("Enter a code!");
+            
+            ably = new Ably.Realtime(ABLY_KEY);
+            channel = ably.channels.get('race-' + code);
+            isMultiplayer = true;
+
+            channel.subscribe('start-race', (msg) => {
+                targetGoal = msg.data.goal;
+                document.getElementById('target-word').innerText = msg.data.emoji + " " + targetGoal;
+                showScreen('screen-game');
+                document.getElementById('goal-bar').style.display = 'block';
+                updateInventoryUI();
+            });
+
+            channel.subscribe('win', (msg) => {
+                alert("🏆 " + msg.data.winner + " CRAFTED THE GOAL!");
+                location.reload();
+            });
+
+            if (role === 'host') {
+                isHost = true;
+                document.getElementById('lobby-actions').style.display = 'none';
+                document.getElementById('host-controls').style.display = 'block';
+            } else {
+                document.getElementById('lobby-actions').innerHTML = "<p>Waiting for host to start...</p>";
+                showScreen('screen-game');
+                document.getElementById('goal-bar').style.display = 'block';
+            }
+        }
+
+        async function triggerRaceStart() {
+            const res = await fetch('/.netlify/functions/craft', { method: 'POST', body: JSON.stringify({ item1: "Random", item2: "Goal" }) });
+            const data = await res.json();
+            channel.publish('start-race', { goal: data.n, emoji: data.e });
+        }
+
+        // --- CORE CRAFTING LOGIC ---
+        function updateInventoryUI() {
+            const inv = document.getElementById('inventory');
+            inv.innerHTML = '';
+            myDiscoveries.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'inv-item';
+                div.innerHTML = `${item.e} ${item.n}`;
+                div.onclick = () => createItem(item.n, item.e, window.innerWidth/2-60, 200);
+                inv.appendChild(div);
+            });
+        }
+
+        function createItem(name, emoji, x, y, parents = null) {
+            const div = document.createElement('div');
+            div.className = 'item';
+            div.innerHTML = `<span>${emoji} ${name}</span><div class="recipe-btn" onclick="event.stopPropagation(); showRecipe('${name}')">i</div>`;
+            div.style.left = x + 'px'; div.style.top = y + 'px';
+            
+            if (parents) {
+                recipeBook[name] = { i1: parents.i1, i2: parents.i2 };
+                localStorage.setItem('recipeBook', JSON.stringify(recipeBook));
+            }
+
+            if (!myDiscoveries.some(d => d.n === name)) {
+                myDiscoveries.push({n: name, e: emoji});
+                localStorage.setItem('myCrafts', JSON.stringify(myDiscoveries));
+                updateInventoryUI();
+            }
+
+            if (isMultiplayer && name.toLowerCase() === targetGoal.toLowerCase()) {
+                channel.publish('win', { winner: "A Rival" });
+            }
+
+            // Dragging
+            let activeDrag = false;
+            div.addEventListener('touchstart', (e) => { activeDrag = true; div.style.zIndex = 1000; });
+            document.addEventListener('touchmove', (e) => {
+                if (!activeDrag) return;
+                const t = e.touches[0];
+                div.style.left = (t.clientX - 60) + 'px';
+                div.style.top = (t.clientY - 25) + 'px';
+                checkOverlap(div);
+            }, {passive: false});
+            div.addEventListener('touchend', () => { activeDrag = false; div.style.zIndex = 10; });
+
+            document.getElementById('board').appendChild(div);
+        }
+
+        async function checkOverlap(active) {
+            const items = document.querySelectorAll('.item');
+            const r1 = active.getBoundingClientRect();
+            for (let other of items) {
+                if (other === active) continue;
+                const r2 = other.getBoundingClientRect();
+                if (!(r1.right < r2.left || r1.left > r2.right || r1.bottom < r2.top || r1.top > r2.bottom)) {
+                    const i1 = active.innerText.split(' ').slice(1).join(' ').replace('i','').trim();
+                    const i2 = other.innerText.split(' ').slice(1).join(' ').replace('i','').trim();
+                    active.remove(); other.remove();
+                    const res = await fetch('/.netlify/functions/craft', { method: 'POST', body: JSON.stringify({ item1: i1, item2: i2 }) });
+                    const data = await res.json();
+                    createItem(data.n, data.e, r2.left, r2.top, {i1: i1, i2: i2});
+                    break;
+                }
+            }
+        }
+
+        function showDiscoveries() {
+            const list = document.getElementById('discovery-list');
+            // Reusing info modal for display
+            document.getElementById('modal-title').innerText = "Your Discoveries";
+            document.getElementById('modal-text').innerHTML = myDiscoveries.map(d => `${d.e} ${d.n}`).join(', ');
+            document.getElementById('infoModal').style.display = 'flex';
+        }
+
+        function clearBoard() { document.getElementById('board').innerHTML = ''; }
+    </script>
+</body>
+</html>
